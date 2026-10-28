@@ -1,136 +1,318 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-// Carebidge demonstration data. No vital readings on these pages come from a device.
-const ranges = [
-  {min:35,max:40,sys:[90,120],dia:[60,80],riskSys:[121,139],riskDia:[81,89]},
-  {min:40,max:45,sys:[95,122],dia:[60,80],riskSys:[123,139],riskDia:[81,89]},
-  {min:45,max:50,sys:[95,124],dia:[60,82],riskSys:[125,139],riskDia:[83,89]},
-  {min:50,max:55,sys:[95,126],dia:[60,83],riskSys:[127,139],riskDia:[84,89]},
-  {min:55,max:60,sys:[95,128],dia:[60,85],riskSys:[129,139],riskDia:[86,89]},
-  {min:60,max:65,sys:[100,130],dia:[60,85],riskSys:[131,139],riskDia:[86,89]},
-  {min:65,max:70,sys:[100,134],dia:[60,85],riskSys:[135,139],riskDia:[86,89]},
-];
-const patients = [
-  {id:'CB-1042',name:'Maya Sharma',age:52,sex:'Female',initials:'MS',bp:[118,78],spo2:98,heart:74,condition:'Hypertension monitoring',room:'204 A',last:'2 min ago'},
-  {id:'CB-1048',name:'Arjun Mehta',age:64,sex:'Male',initials:'AM',bp:[136,88],spo2:93,heart:106,condition:'Cardiac observation',room:'203 B',last:'4 min ago'},
-  {id:'CB-1056',name:'Nisha Rao',age:43,sex:'Female',initials:'NR',bp:[184,122],spo2:88,heart:126,condition:'Acute observation',room:'201 A',last:'1 min ago',emergencyContactName:'Kiran Rao (demo)'},
-  {id:'CB-1061',name:'Dev Patel',age:39,sex:'Male',initials:'DP',bp:[112,73],spo2:99,heart:68,condition:'Routine wellness',room:'205 C',last:'6 min ago'},
-  {id:'CB-1068',name:'Farah Khan',age:58,sex:'Female',initials:'FK',bp:[133,88],spo2:94,heart:109,condition:'Respiratory follow-up',room:'206 A',last:'3 min ago'},
-  {id:'CB-1072',name:'Ravi Das',age:67,sex:'Male',initials:'RD',bp:[129,82],spo2:97,heart:82,condition:'Post-op recovery',room:'207 B',last:'5 min ago'},
-];
-const $ = (selector) => document.querySelector(selector);
+
+const supabase = createClient('https://crddvvazctuugjyswigq.supabase.co', 'sb_publishable_-MG0bcuTHcVHeikqe1H5VQ_0GD_jCzu');
+const $ = selector => document.querySelector(selector);
 const page = document.body.dataset.page;
-const selectedId = sessionStorage.getItem('carebidge-patient') || patients[0].id;
-let selected = patients.find(p => p.id === selectedId) || patients[0];
-let filter = 'all';
-let running = true;
-let tick = 0;
-const within = (v, range) => v >= range[0] && v <= range[1];
-function status(p) {
-  const [sys,dia]=p.bp, r=ranges.find((x,i) => p.age >= x.min && (i===ranges.length-1 ? p.age<=x.max : p.age<x.max));
-  if(!r) return 'unclassified';
-  if(sys<90||sys>=180||dia<60||dia>=120||p.heart<50||p.heart>120||p.spo2<90) return 'critical';
-  if(within(sys,r.riskSys)||within(dia,r.riskDia)||within(p.heart,[101,120])||within(p.spo2,[90,94])) return 'intermediate';
-  if(within(sys,r.sys)&&within(dia,r.dia)&&within(p.heart,[60,100])&&within(p.spo2,[95,100])) return 'normal';
-  return 'unclassified';
-}
-const badge=p=>`<span class="status ${status(p)}">${status(p)[0].toUpperCase()+status(p).slice(1)}</span>`;
-const avatar=p=>`<span class="avatar">${p.initials}</span>`;
-function header(kicker,title,subtitle,extra='') {return `<div class="page-top"><div><div class="eyebrow">${kicker}</div><h1>${title}</h1><p class="subtitle">${subtitle}</p></div><div class="top-buttons">${extra}</div></div>`}
-function wave(base,variation,n=26){return Array.from({length:n},(_,i)=>Math.round(base+Math.sin(i*.6+tick*.25)*variation*.55+(Math.random()-.5)*variation)).map(v=>v)}
-function chart(values,min,max,color='#4bb8e4'){
-  const coords=values.map((v,i)=>`${(i/(values.length-1)*600).toFixed(1)},${(100-(v-min)/(max-min)*86).toFixed(1)}`).join(' ');
-  return `<svg class="chart" viewBox="0 0 600 110" preserveAspectRatio="none" role="img" aria-label="Simulated trend chart"><path d="M0 20H600 M0 60H600 M0 100H600" stroke="#edf1f3" stroke-width="1"/><polyline points="${coords}" fill="none" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg><div class="axis"><span>30 MIN AGO</span><span>20 MIN</span><span>10 MIN</span><span>NOW</span></div>`;
-}
-function vitalCard(name,value,unit,values,min,max,description,extra=''){
-  return `<div class="card pad"><div class="chart-top"><h2>${name}</h2><span class="eyebrow">${description}</span></div><div class="metric">${value}<small>${unit}</small></div>${chart(values,min,max)}${extra}</div>`;
-}
-function renderCharts(){
-  if(page!=='hub')return;
-  const p=selected;
-  $('#charts').innerHTML=
-    vitalCard('Blood pressure',`${p.bp[0]} / ${p.bp[1]}`,'mmHg',wave(p.bp[0],7),80,200,'SYSTOLIC',`<div class="chart-key"><i class="keyline"></i>Systolic <i class="keyline grey"></i>Diastolic: ${p.bp[1]} mmHg</div>`)+
-    vitalCard('Oxygen saturation',p.spo2,'%',wave(p.spo2,2),84,101,'SpO₂')+
-    vitalCard('Heart rate',p.heart,'bpm',wave(p.heart,9),45,140,'PULSE');
-}
-function renderRoster(){
-  const shown=patients.filter(p=>filter==='all'||status(p)===filter);
-  $('#roster').innerHTML=shown.length?shown.map(p=>`<button type="button" class="patient-row ${selected.id===p.id?'selected':''}" data-id="${p.id}">${avatar(p)}<span><div class="person-name">${p.name}</div><div class="person-meta">${p.id} · ${p.age} yrs · ${p.room}</div></span>${badge(p)}</button>`).join(''):'<div class="card-foot">No patients in this category.</div>';
-  document.querySelectorAll('.patient-row').forEach(button=>button.addEventListener('click',()=>{
-    selected=patients.find(p=>p.id===button.dataset.id);sessionStorage.setItem('carebidge-patient',selected.id);renderRoster();renderCharts();
-    $('#selected-name').textContent=selected.name;$('#patient-link').href='patient.html';
-  }));
-}
-function renderHub(){
-  const counts={all:patients.length,normal:0,intermediate:0,critical:0};patients.forEach(p=>{const key=status(p);if(key in counts&&key!=='all')counts[key]++});
-  $('#content').innerHTML=header('YOUR WORKSPACE / OVERVIEW','Main hub','A clear view of your patients and their latest simulated vital signs.',`<button class="btn" id="simulation">Pause simulation</button><a class="btn dark" href="doctor.html">Doctor profile ↗</a>`)+
-  `<div class="stats">${[['all','Total patients','All patients'],['normal','Normal','Within reference ranges'],['intermediate','Intermediate','Needs review'],['critical','Critical','Priority attention']].map(([key,title,note])=>`<button class="stat ${filter===key&&filter!=='all'?'active':''}" data-filter="${key}"><label>${title}</label><strong>${counts[key]}</strong><small>${note} ↗</small></button>`).join('')}</div>`+
-  `<div class="columns"><section><div class="section-heading"><h2>Vitals monitor</h2><small><span class="live-dot">●</span> SIMULATED · 30 MIN VIEW</small></div><div class="section-heading"><select id="patient-select" aria-label="Select patient">${patients.map(p=>`<option value="${p.id}" ${p.id===selected.id?'selected':''}>${p.name} · ${p.id}</option>`).join('')}</select><small id="selected-name">${selected.name}</small></div><div id="charts"></div><div class="card pad"><div class="section-heading"><h2>Reference guide</h2><small>AGES 35–70</small></div><p class="note">Normal, Intermediate, and Critical map to the supplied spreadsheet’s Stable, At Risk, and Very Severe ranges. These are demonstration labels and are not medical decisions.</p><a class="btn blue-button" id="patient-link" href="patient.html">Open patient profile ↗</a></div></section><section><div class="section-heading"><h2>Patient overview</h2><small>SELECT A ROW TO VIEW VITALS</small></div><div class="card"><div class="roster-title"><h2>Monitored patients</h2><small>${patients.length} DEMO PROFILES</small></div><div id="roster"></div><div class="card-foot">Values are fictional. Status updates as the simulation runs.</div></div><div class="card pad spotlight"><div class="eyebrow">CARE IN MOTION</div><h2>Every vital tells<br>part of the story.</h2><p class="subtitle">Explore a patient’s profile for their latest readings and care notes.</p><a class="btn blue-button" href="patient.html">View patient ↗</a></div><div class="card pad"><div class="section-heading"><h2>Recent activity</h2><small>DEMO FEED</small></div><div class="activity"><i></i><div><p>Vitals refreshed for monitored patients</p><small>Simulation · just now</small></div></div><div class="activity"><i></i><div><p>Care team reviewed the daily overview</p><small>Dr. Aanya Sen · earlier today</small></div></div></div></section></div>`;
-  document.querySelectorAll('[data-filter]').forEach(button=>button.addEventListener('click',()=>{filter=button.dataset.filter;document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b===button&&filter!=='all'));renderRoster()}));
-  $('#patient-select').addEventListener('change',e=>{selected=patients.find(p=>p.id===e.target.value);sessionStorage.setItem('carebidge-patient',selected.id);renderRoster();renderCharts();$('#selected-name').textContent=selected.name});
-  $('#simulation').addEventListener('click',e=>{running=!running;e.currentTarget.textContent=running?'Pause simulation':'Resume simulation'});
-  renderRoster();renderCharts();
-  setInterval(()=>{if(!running)return;tick++;patients.forEach(p=>{const baseline=baseReadings[p.id];p.bp=[Math.round(baseline.bp[0]+(Math.random()-.5)*4),Math.round(baseline.bp[1]+(Math.random()-.5)*3)];p.spo2=Math.max(85,Math.min(100,Math.round(baseline.spo2+(Math.random()-.5)*2)));p.heart=Math.round(baseline.heart+(Math.random()-.5)*5)});renderRoster();renderCharts()},5000);
-}
-const baseReadings=Object.fromEntries(patients.map(p=>[p.id,{bp:[...p.bp],spo2:p.spo2,heart:p.heart}]));
-function detail(a,b){return `<div class="detail"><span>${a}</span><span>${b}</span></div>`}
-function renderDoctor(){
-  $('#content').innerHTML=header('PROFILE / CLINICIAN','Doctor profile','Meet the clinician in this demonstration care team.',`<a class="btn" href="index.html">← Main hub</a><a class="btn dark" href="patient.html">Patient profile ↗</a>`)+
-  `<div class="profile"><div class="card profile-side"><span class="avatar">AS</span><h2>Dr. Aanya Sen</h2><p class="subtitle">Internal medicine</p><span class="status normal">Available</span><hr>${detail('Clinician ID','DR-0284')}${detail('Experience','12 years')}${detail('Department','Internal medicine')}${detail('Location','Carebidge Central')}<hr><div class="eyebrow">DEMO PROFILE</div><p class="note">Profile details are fictional placeholders.</p></div><section><div class="profile-metrics"><div class="card"><div class="eyebrow">ASSIGNED PATIENTS</div><strong>${patients.length}</strong><small>demo profiles</small></div><div class="card"><div class="eyebrow">FOLLOW-UPS</div><strong>03</strong><small>scheduled today</small></div><div class="card"><div class="eyebrow">SHIFT</div><strong>Day</strong><small>09:00–17:00</small></div></div><div class="profile-grid"><div class="card pad"><h2>About the clinician</h2><p class="note">Dr. Sen supports coordinated patient monitoring and routine follow-up. This card demonstrates how provider information could appear alongside a patient’s vital trends.</p><span class="pill">Internal medicine</span><span class="pill">Preventive care</span></div><div class="card pad"><h2>Today's schedule</h2><div class="schedule"><span class="time">09:30</span><span>Morning rounds<small>Ward A</small></span></div><div class="schedule"><span class="time">11:15</span><span>Patient follow-up<small>Room 203 B</small></span></div><div class="schedule"><span class="time">14:00</span><span>Care team review<small>Conference room</small></span></div></div><div class="card pad"><h2>Assigned patients</h2>${patients.slice(0,4).map(p=>`<div class="schedule"><span class="avatar tiny">${p.initials}</span><span>${p.name}<small>${p.id} · ${p.room}</small></span>${badge(p)}</div>`).join('')}</div><div class="card pad"><h2>Care approach</h2><p class="note">A shared view of readings can support timely conversations between patients and clinicians. The data here is simulated for interface demonstration.</p><a class="btn blue-button" href="index.html">Open main hub ↗</a></div></div></section></div>`;
-}
-function setupMenu(){const button=$('#menu-button'),drawer=$('#drawer'),backdrop=$('#backdrop');const toggle=open=>{drawer.hidden=!open;backdrop.hidden=!open;button.setAttribute('aria-expanded',String(open));button.setAttribute('aria-label',open?'Close menu':'Open menu')};button.addEventListener('click',()=>toggle(drawer.hidden));backdrop.addEventListener('click',()=>toggle(false));document.addEventListener('keydown',e=>{if(e.key==='Escape')toggle(false)});drawer.querySelectorAll('a').forEach(a=>{if(a.getAttribute('href')===(page==='hub'?'index.html':page+'.html'))a.classList.add('active')})}
-const supabase=createClient('https://crddvvazctuugjyswigq.supabase.co','sb_publishable_-MG0bcuTHcVHeikqe1H5VQ_0GD_jCzu');
-let currentRole=null;
-let currentUser=null;
-let alertDemo=false;
-const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const localDay = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const formatDate = value => new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+const formatTime = value => { const [h, m] = String(value).split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+const detail = (label, value) => `<div class="detail"><span>${label}</span><span>${escapeHtml(value || 'Not provided')}</span></div>`;
+const errorText = error => escapeHtml(error?.message || 'Please try again.');
+let user, role, ownProfile, doctorProfile;
+let doctors = [], links = [], medicines = [], events = [], patients = [], readings = [];
+let selectedPatientId = new URLSearchParams(location.search).get('id');
+let notice = '', busy = false;
 
-async function bootstrap(){
-  const {data:{user},error}=await supabase.auth.getUser();
-  if(error||!user?.email_confirmed_at){window.location.replace('login.html');return}
-  currentUser=user;
-  const {data:roleRow,error:roleError}=await supabase.from('user_roles').select('role').eq('user_id',user.id).single();
-  if(roleError||!roleRow){$('#content').textContent='Your account has no assigned role. Ask the administrator to run roles_schema.sql.';return}
-  currentRole=roleRow.role;
-  if(currentRole==='patient'&&page!=='patient'){window.location.replace('patient.html');return}
-  if(currentRole==='patient'){
-    const {data:profile,error:profileError}=await supabase.from('patient_profiles').select('display_name,age,sex,care_focus,emergency_contact_name,emergency_contact_phone').eq('user_id',user.id).maybeSingle();
-    if(profileError){$('#content').textContent='Unable to load your patient profile. Please try again.';return}
-    const name=escapeHtml(profile?.display_name||user.email?.split('@')[0]||'Patient');
-    selected={id:'YOUR PROFILE',name,initials:name.slice(0,2).toUpperCase(),age:profile?.age||52,sex:escapeHtml(profile?.sex||'Not provided'),bp:[118,78],spo2:98,heart:74,condition:escapeHtml(profile?.care_focus||'Daily wellness monitoring'),room:'Not assigned',last:'Simulated now',emergencyContactName:escapeHtml(profile?.emergency_contact_name||''),emergencyContactPhone:escapeHtml(profile?.emergency_contact_phone||''),email:escapeHtml(user.email||'')};
-    document.querySelectorAll('.drawer a[href="index.html"],.drawer a[href="doctor.html"]').forEach(a=>a.hidden=true);
-    $('.brand').href='patient.html';
-    $('.top-right .avatar').href='patient.html';
+function readingState(r) {
+  if (!r) return 'unclassified';
+  // Screening flags only. The user's clinician must set clinical action thresholds.
+  if (r.spo2 <= 92 || r.systolic >= 180 || r.diastolic >= 120 || r.systolic < 90) return 'critical';
+  if (r.spo2 < 95 || r.systolic >= 130 || r.diastolic >= 80 || r.diastolic < 60 || r.heart_rate < 50 || r.heart_rate > 100) return 'intermediate';
+  return 'normal';
+}
+function badge(r) {
+  const state = readingState(r);
+  return `<span class="status ${state}">${({ normal: 'Normal', intermediate: 'Intermediate', critical: 'Critical', unclassified: 'No reading' })[state]}</span>`;
+}
+function avatar(name) { return `<span class="avatar">${escapeHtml((name || 'P').slice(0, 2).toUpperCase())}</span>`; }
+function header(kicker, title, subtitle, actions = '') {
+  return `<div class="page-top"><div><div class="eyebrow">${kicker}</div><h1>${title}</h1><p class="subtitle">${subtitle}</p></div><div class="top-buttons">${actions}</div></div>`;
+}
+function setupMenu() {
+  const button = $('#menu-button'), drawer = $('#drawer'), backdrop = $('#backdrop');
+  const toggle = open => { drawer.hidden = !open; backdrop.hidden = !open; button.setAttribute('aria-expanded', String(open)); button.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
+  button.addEventListener('click', () => toggle(drawer.hidden));
+  backdrop.addEventListener('click', () => toggle(false));
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') toggle(false); });
+  if (role === 'patient') {
+    document.querySelectorAll('.drawer a[href="index.html"], .drawer a[href="doctor.html"]').forEach(link => link.hidden = true);
+    $('.brand').href = 'patient.html';
+    $('.top-right .avatar').href = 'patient.html';
   }
+  const active = page === 'hub' ? 'index.html' : `${page}.html`;
+  drawer.querySelectorAll('a').forEach(link => { if (link.getAttribute('href') === active) link.classList.add('active'); });
+  const signout = $('.signin');
+  signout.textContent = 'Sign out ↗'; signout.href = '#';
+  signout.addEventListener('click', async event => { event.preventDefault(); await supabase.auth.signOut(); location.assign('login.html'); });
+}
+
+async function loadPatientProfile(patientId) {
+  const { data, error } = await supabase.from('patient_profiles')
+    .select('user_id,display_name,age,sex,care_focus,emergency_contact_name,emergency_contact_phone')
+    .eq('user_id', patientId).maybeSingle();
+  if (error) throw error;
+  return data || { user_id: patientId, display_name: patientId === user.id ? (user.email?.split('@')[0] || 'Patient') : `Patient ${patientId.slice(0, 8)}` };
+}
+async function loadReadings(patientId) {
+  const { data, error } = await supabase.from('vital_readings')
+    .select('id,patient_id,systolic,diastolic,spo2,heart_rate,source,measured_at')
+    .eq('patient_id', patientId).order('measured_at', { ascending: false }).limit(40);
+  if (error) throw error;
+  return data || [];
+}
+async function loadMedicines() {
+  const { data, error } = await supabase.from('medicine_schedules')
+    .select('id,medicine_name,scheduled_time,last_taken_on')
+    .eq('patient_id', user.id).order('scheduled_time');
+  if (error) throw error;
+  medicines = data || [];
+}
+async function loadCareTeam() {
+  const [list, connected] = await Promise.all([
+    supabase.from('doctor_profiles').select('user_id,display_name,specialty,facility').order('display_name'),
+    supabase.from('care_links').select('doctor_id,created_at').eq('patient_id', user.id)
+  ]);
+  if (list.error) throw list.error;
+  if (connected.error) throw connected.error;
+  doctors = list.data || []; links = connected.data || [];
+}
+async function loadDoctorProfile() {
+  const { data, error } = await supabase.from('doctor_profiles')
+    .select('user_id,display_name,specialty,facility').eq('user_id', user.id).maybeSingle();
+  if (error) throw error;
+  if (data) { doctorProfile = data; return; }
+  const newProfile = { user_id: user.id, display_name: user.email?.split('@')[0] || 'Doctor' };
+  const saved = await supabase.from('doctor_profiles').upsert(newProfile, { onConflict: 'user_id' }).select('user_id,display_name,specialty,facility').single();
+  if (saved.error) throw saved.error;
+  doctorProfile = saved.data;
+}
+async function loadAssignedPatients() {
+  const connected = await supabase.from('care_links').select('patient_id').eq('doctor_id', user.id);
+  if (connected.error) throw connected.error;
+  const ids = (connected.data || []).map(link => link.patient_id);
+  if (!ids.length) { patients = []; return; }
+  const [profiles, vitals] = await Promise.all([
+    supabase.from('patient_profiles').select('user_id,display_name,age,sex,care_focus,emergency_contact_name,emergency_contact_phone').in('user_id', ids),
+    supabase.from('vital_readings').select('patient_id,systolic,diastolic,spo2,heart_rate,source,measured_at').in('patient_id', ids).order('measured_at', { ascending: false }).limit(500)
+  ]);
+  if (profiles.error) throw profiles.error;
+  if (vitals.error) throw vitals.error;
+  const profileMap = new Map((profiles.data || []).map(profile => [profile.user_id, profile]));
+  const recentMap = new Map();
+  for (const reading of vitals.data || []) if (!recentMap.has(reading.patient_id)) recentMap.set(reading.patient_id, reading);
+  patients = ids.map(id => ({ ...profileMap.get(id), user_id: id, display_name: profileMap.get(id)?.display_name || `Patient ${id.slice(0, 8)}`, latest: recentMap.get(id) || null }));
+  if (!selectedPatientId || !ids.includes(selectedPatientId)) selectedPatientId = ids[0];
+}
+async function loadEvents() {
+  const { data, error } = await supabase.from('emergency_events')
+    .select('id,patient_id,patient_name,vital_snapshot,created_at')
+    .order('created_at', { ascending: false }).limit(50);
+  if (error) throw error;
+  events = data || [];
+}
+
+function trend(values, min, max, label) {
+  if (!values.length) return '<p class="note">No readings recorded yet.</p>';
+  const spread = max - min || 1;
+  const points = values.map((value, index) => `${values.length === 1 ? 300 : index * 600 / (values.length - 1)},${100 - (Math.max(min, Math.min(max, value)) - min) / spread * 82}`).join(' ');
+  return `<svg class="chart" viewBox="0 0 600 110" preserveAspectRatio="none" role="img" aria-label="${label} history"><path d="M0 20H600 M0 60H600 M0 100H600" stroke="#edf1f3" stroke-width="1"/><polyline points="${points}" fill="none" stroke="#4bb8e4" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+function vitalCards(history) {
+  const latest = history[0];
+  const ordered = [...history].reverse();
+  const card = (title, value, unit, values, min, max, note) => `<div class="card pad"><div class="chart-top"><h2>${title}</h2><span class="eyebrow">${note}</span></div><div class="metric">${value}<small>${unit}</small></div>${trend(values, min, max, title)}<div class="axis"><span>${ordered.length ? escapeHtml(formatDate(ordered[0].measured_at)) : ''}</span><span>${ordered.length > 1 ? escapeHtml(formatDate(ordered.at(-1).measured_at)) : ''}</span></div></div>`;
+  return card('Blood pressure', latest ? `${latest.systolic} / ${latest.diastolic}` : '—', 'mmHg', ordered.map(r => r.systolic), 70, 220, 'SYSTOLIC') +
+    card('Oxygen saturation', latest?.spo2 ?? '—', '%', ordered.map(r => r.spo2), 80, 100, 'SpO₂') +
+    card('Heart rate', latest?.heart_rate ?? '—', 'bpm', ordered.map(r => r.heart_rate), 35, 160, 'PULSE');
+}
+function urgentBanner(reading, profile) {
+  if (readingState(reading) !== 'critical') return '';
+  const phone = profile.emergency_contact_phone?.replace(/[^+\d]/g, '') || '';
+  return `<section class="emergency" role="alert"><div><div class="eyebrow">URGENT READING FLAG</div><h2>Review this reading promptly</h2><p>This reading crossed a screening threshold. Repeat the measurement with a reliable device and contact a qualified clinician. If you have concerning symptoms or are in immediate danger, call your local emergency number. Carebidge does not dispatch emergency services.</p><strong>Emergency contact: ${escapeHtml(profile.emergency_contact_name || 'Not provided')}${phone ? ` · ${escapeHtml(profile.emergency_contact_phone)}` : ''}</strong></div>${phone ? `<a class="btn dark" href="tel:${phone}">Call contact</a>` : ''}</section>`;
+}
+function identityCard(profile, latest) {
+  const name = profile.display_name || 'Patient';
+  return `<section class="card pad patient-identity">${avatar(name)}<div><div class="eyebrow">PATIENT RECORD</div><h2>${escapeHtml(name)}</h2><p class="note">${escapeHtml(profile.age ? `${profile.age} years` : 'Age not entered')} · ${escapeHtml(profile.sex || 'Sex not entered')} · ${escapeHtml(profile.care_focus || 'Care focus not entered')}</p><p class="note">Last reading: ${latest ? escapeHtml(formatDate(latest.measured_at)) + ` · ${escapeHtml(latest.source)}` : 'None yet'}</p></div>${badge(latest)}</section>`;
+}
+function medicineRows() {
+  if (!medicines.length) return '<p class="note">No medicines scheduled yet. Add a medicine and the time given by your clinician.</p>';
+  const today = localDay(), now = new Date();
+  return medicines.map(item => {
+    const taken = item.last_taken_on === today;
+    const [h, m] = item.scheduled_time.split(':').map(Number);
+    const due = new Date(); due.setHours(h, m, 0, 0);
+    const label = taken ? 'Taken today' : now > due ? 'Not taken · past time' : 'Not taken';
+    return `<div class="medicine-row"><div><strong>${escapeHtml(item.medicine_name)}</strong><small>${escapeHtml(formatTime(item.scheduled_time))}</small></div><span class="status ${taken ? 'normal' : now > due ? 'intermediate' : 'unclassified'}">${label}</span><div class="medicine-actions"><button class="btn" data-med-action="toggle" data-id="${item.id}">${taken ? 'Undo' : 'Mark taken'}</button><button class="btn" data-med-action="delete" data-id="${item.id}" aria-label="Remove ${escapeHtml(item.medicine_name)}">×</button></div></div>`;
+  }).join('');
+}
+function updateMedicineTimer() {
+  const target = $('#medicine-next'); if (!target) return;
+  const list = $('#medicine-list');
+  if (list) list.innerHTML = medicineRows();
+  const pending = medicines.filter(item => item.last_taken_on !== localDay());
+  if (!medicines.length) { target.textContent = 'No schedule yet.'; return; }
+  if (!pending.length) { target.textContent = 'All scheduled medicines are marked taken today.'; return; }
+  const first = pending[0], [h, m] = first.scheduled_time.split(':').map(Number);
+  const due = new Date(); due.setHours(h, m, 0, 0);
+  const minutes = Math.ceil(Math.abs(due - new Date()) / 60000);
+  target.textContent = `${first.medicine_name}: ${due < new Date() ? 'past scheduled time by' : 'due in'} ${Math.floor(minutes / 60)}h ${minutes % 60}m (${formatTime(first.scheduled_time)}).`;
+}
+function medicinePanel() {
+  return `<section class="card pad medicine-card"><div class="section-heading"><div><div class="eyebrow">DAILY TRACKER</div><h2>Medicine schedule</h2></div></div><p class="note" id="medicine-next"></p><div id="medicine-list">${medicineRows()}</div><form id="medicine-form" class="medicine-form"><label>Medicine name<input name="medicine_name" maxlength="100" required></label><label>Prescribed time<input name="scheduled_time" type="time" required></label><button class="btn dark">Add medicine</button></form><p id="medicine-message" class="form-message" role="status"></p><p class="note">Times are entered by you. A “taken” mark records your tap; it cannot verify ingestion. Follow your clinician’s instructions.</p></section>`;
+}
+function careTeamPanel() {
+  const connected = links.map(link => doctors.find(doc => doc.user_id === link.doctor_id)).filter(Boolean);
+  const options = doctors.filter(doc => !links.some(link => link.doctor_id === doc.user_id));
+  return `<section class="card pad"><div class="section-heading"><h2>Connected doctors</h2><small>SHARED ACCESS</small></div><p class="note">Only doctors you connect can see your profile, readings, and SOS requests.</p><div id="connected-doctors">${connected.length ? connected.map(doc => `<div class="medicine-row"><strong>${escapeHtml(doc.display_name)}</strong><button class="btn" data-disconnect="${doc.user_id}">Disconnect</button></div>`).join('') : '<p class="note">No doctor connected. SOS cannot reach a doctor until you connect one.</p>'}</div>${options.length ? `<form id="connect-doctor-form" class="medicine-form"><label>Choose doctor<select name="doctor_id" required>${options.map(doc => `<option value="${doc.user_id}">${escapeHtml(doc.display_name)}${doc.facility ? ` · ${escapeHtml(doc.facility)}` : ''}</option>`).join('')}</select></label><button class="btn dark">Connect doctor</button></form>` : ''}<p id="care-team-message" class="form-message" role="status"></p></section>`;
+}
+function profileForm(profile) {
+  return `<form id="profile-form" class="card pad profile-editor" hidden><h2>Your profile and emergency contact</h2><label>Name<input name="display_name" maxlength="80" value="${escapeHtml(profile.display_name || '')}" required></label><label>Age<input name="age" type="number" min="0" max="120" value="${escapeHtml(profile.age ?? '')}"></label><label>Sex<input name="sex" maxlength="40" value="${escapeHtml(profile.sex || '')}"></label><label>Care focus<input name="care_focus" maxlength="120" value="${escapeHtml(profile.care_focus || '')}"></label><label>Emergency contact name<input name="emergency_contact_name" maxlength="80" value="${escapeHtml(profile.emergency_contact_name || '')}"></label><label>Emergency contact phone<input name="emergency_contact_phone" type="tel" maxlength="30" value="${escapeHtml(profile.emergency_contact_phone || '')}"></label><button class="btn dark">Save profile</button><p id="profile-message" role="status"></p></form>`;
+}
+function readingForm() {
+  return `<form id="reading-form" class="card pad reading-form"><h2>Record a reading</h2><p class="note">Enter measurements from your device. The graphs use only saved readings.</p><div class="reading-fields"><label>Systolic (mmHg)<input name="systolic" type="number" min="50" max="300" required></label><label>Diastolic (mmHg)<input name="diastolic" type="number" min="30" max="200" required></label><label>SpO₂ (%)<input name="spo2" type="number" min="50" max="100" required></label><label>Heart rate (bpm)<input name="heart_rate" type="number" min="25" max="250" required></label></div><button class="btn dark">Save reading</button><p id="reading-message" role="status"></p></form>`;
+}
+function renderPatient() {
+  const own = role === 'patient';
+  const profile = own ? ownProfile : patients.find(p => p.user_id === selectedPatientId);
+  if (!profile) {
+    $('#content').innerHTML = header('PROFILE / PATIENT', 'Patient profile', 'Select a connected patient from the main hub.', '<a class="btn" href="index.html">Main hub</a>');
+    return;
+  }
+  const latest = readings[0];
+  const actions = own ? '<button class="btn" id="edit-profile">Edit profile</button>' : '<a class="btn" href="index.html">← Main hub</a>';
+  const sos = own ? `<section class="sos-panel card"><div class="eyebrow">PATIENT SAFETY</div><button class="sos-button" id="sos-button" type="button" ${links.length ? '' : 'disabled'}>SOS</button><h2>Need help?</h2><p>${links.length ? 'Post an SOS to your connected doctors’ in-app emergency log.' : 'Connect a doctor below to enable in-app SOS.'} For a real emergency, call your local emergency number. This app does not contact hospitals or emergency services.</p><p class="sos-feedback" id="sos-feedback" role="status">${escapeHtml(notice)}</p></section>` : '';
+  $('#content').innerHTML = header('PROFILE / PATIENT', 'Patient profile', own ? 'Your profile and recorded vital readings.' : 'Recorded readings for your connected patient.', actions) + urgentBanner(latest, profile) + (own ? profileForm(profile) : '') + identityCard(profile, latest) + sos + `<div class="patient-monitor"><section class="patient-vitals"><div class="section-heading"><h2>Vitals monitor</h2><small>RECORDED HISTORY</small></div><div id="patient-charts">${vitalCards(readings)}</div>${own ? readingForm() : ''}<div class="card pad"><h2>Reading status</h2><p class="note">${latest ? `Current reference flag: <strong>${badge(latest)}</strong>.` : 'No reading recorded yet.'} This screen supports monitoring; it does not diagnose a condition or automatically dispatch emergency care.</p></div></section><aside class="patient-medicines">${own ? medicinePanel() + careTeamPanel() : `<section class="card pad"><h2>Care information</h2>${detail('Age', profile.age ? `${profile.age} years` : '')}${detail('Sex', profile.sex)}${detail('Care focus', profile.care_focus)}${detail('Emergency contact', profile.emergency_contact_name)}${detail('Contact phone', profile.emergency_contact_phone)}</section>`}</aside></div>`;
+  if (own) bindPatientActions();
+  updateMedicineTimer();
+}
+function bindPatientActions() {
+  $('#edit-profile').addEventListener('click', () => { $('#profile-form').hidden = !$('#profile-form').hidden; });
+  $('#profile-form').addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.currentTarget; if (!form.reportValidity()) return;
+    const values = Object.fromEntries(new FormData(form));
+    const row = { user_id: user.id, display_name: values.display_name.trim(), age: values.age ? Number(values.age) : null, sex: values.sex.trim(), care_focus: values.care_focus.trim(), emergency_contact_name: values.emergency_contact_name.trim(), emergency_contact_phone: values.emergency_contact_phone.trim(), updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('patient_profiles').upsert(row, { onConflict: 'user_id' });
+    if (error) { $('#profile-message').textContent = error.message; return; }
+    ownProfile = row; renderPatient();
+  });
+  $('#reading-form').addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.currentTarget; if (!form.reportValidity()) return;
+    const values = Object.fromEntries(new FormData(form));
+    const row = { patient_id: user.id, systolic: Number(values.systolic), diastolic: Number(values.diastolic), spo2: Number(values.spo2), heart_rate: Number(values.heart_rate), source: 'manual' };
+    if (row.systolic <= row.diastolic) { $('#reading-message').textContent = 'Systolic pressure must be higher than diastolic pressure.'; return; }
+    const { error } = await supabase.from('vital_readings').insert(row);
+    if (error) { $('#reading-message').textContent = error.message; return; }
+    readings = await loadReadings(user.id); notice = 'Reading saved.'; renderPatient();
+  });
+  $('#sos-button').addEventListener('click', async () => {
+    if (busy || !links.length) return; busy = true; $('#sos-button').disabled = true;
+    const latest = readings[0];
+    const snapshot = latest ? { systolic: latest.systolic, diastolic: latest.diastolic, spo2: latest.spo2, heart_rate: latest.heart_rate, measured_at: latest.measured_at } : {};
+    const { data, error } = await supabase.from('emergency_events').insert({ patient_id: user.id, patient_name: (ownProfile.display_name || user.email?.split('@')[0] || 'Patient').slice(0, 80), vital_snapshot: snapshot }).select('id,created_at').single();
+    busy = false;
+    notice = error ? `SOS could not be posted: ${error.message}. Call your local emergency number if you need urgent help.` : `SOS posted at ${formatDate(data.created_at)} for your connected doctors to review.`;
+    renderPatient();
+  });
+  $('#medicine-form').addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.currentTarget; if (!form.reportValidity()) return;
+    const values = Object.fromEntries(new FormData(form));
+    const { error } = await supabase.from('medicine_schedules').insert({ patient_id: user.id, medicine_name: values.medicine_name.trim(), scheduled_time: values.scheduled_time });
+    if (error) { $('#medicine-message').textContent = error.message; return; }
+    await loadMedicines(); renderPatient();
+  });
+  $('#medicine-list').addEventListener('click', async event => {
+    const button = event.target.closest('[data-med-action]'); if (!button) return;
+    const item = medicines.find(m => m.id === button.dataset.id); if (!item) return;
+    button.disabled = true;
+    const result = button.dataset.medAction === 'delete'
+      ? await supabase.from('medicine_schedules').delete().eq('id', item.id).eq('patient_id', user.id)
+      : await supabase.from('medicine_schedules').update({ last_taken_on: item.last_taken_on === localDay() ? null : localDay() }).eq('id', item.id).eq('patient_id', user.id);
+    if (result.error) { $('#medicine-message').textContent = result.error.message; button.disabled = false; return; }
+    await loadMedicines(); renderPatient();
+  });
+  $('#connect-doctor-form')?.addEventListener('submit', async event => {
+    event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
+    const { error } = await supabase.from('care_links').insert({ patient_id: user.id, doctor_id: values.doctor_id });
+    if (error) { $('#care-team-message').textContent = error.message; return; }
+    await loadCareTeam(); renderPatient();
+  });
+  $('#connected-doctors').addEventListener('click', async event => {
+    const button = event.target.closest('[data-disconnect]'); if (!button) return;
+    const { error } = await supabase.from('care_links').delete().eq('patient_id', user.id).eq('doctor_id', button.dataset.disconnect);
+    if (error) { $('#care-team-message').textContent = error.message; return; }
+    await loadCareTeam(); renderPatient();
+  });
+}
+
+function renderHub() {
+  const selected = patients.find(p => p.user_id === selectedPatientId);
+  const counts = { normal: 0, intermediate: 0, critical: 0, unclassified: 0 };
+  readings.forEach(reading => counts[readingState(reading)]++);
+  $('#content').innerHTML = header('YOUR WORKSPACE / OVERVIEW', 'Main hub', 'Connected patients and their recorded vital readings.', '<a class="btn dark" href="doctor.html">Doctor profile ↗</a>') +
+    `<div class="stats">${[['Patients', patients.length], ['Normal', counts.normal], ['Intermediate', counts.intermediate], ['Critical', counts.critical]].map(([label, count]) => `<div class="stat"><label>${label}</label><strong>${count}</strong><small>${label === 'Patients' ? 'Connected to you' : 'Recorded readings'}</small></div>`).join('')}</div>` +
+    `<div class="columns"><section><div class="section-heading"><h2>Vitals monitor</h2><small>RECORDED READINGS</small></div>${selected ? `<div class="card pad"><div class="section-heading"><h2>${escapeHtml(selected.display_name)}</h2>${badge(selected.latest)}</div><p class="note">${selected.latest ? `Last recorded ${escapeHtml(formatDate(selected.latest.measured_at))}` : 'No readings yet.'}</p><a class="btn blue-button" href="patient.html?id=${encodeURIComponent(selected.user_id)}">Open patient profile ↗</a></div><div id="charts">${vitalCards(readings)}</div>` : '<div class="card pad"><h2>No connected patients yet</h2><p class="note">A patient can connect to your doctor profile from their care team panel. Their profile and readings will appear here after they do.</p></div>'}</section><section><div class="section-heading"><h2>Patient overview</h2><small>${patients.length} CONNECTED</small></div><div class="card">${patients.length ? patients.map(p => `<button class="patient-row ${p.user_id === selectedPatientId ? 'selected' : ''}" data-patient="${p.user_id}">${avatar(p.display_name)}<span><div class="person-name">${escapeHtml(p.display_name)}</div><div class="person-meta">${p.latest ? `Updated ${escapeHtml(formatDate(p.latest.measured_at))}` : 'No readings yet'}</div></span>${badge(p.latest)}</button>`).join('') : '<div class="card-foot">No patients have connected yet.</div>'}</div><div class="card pad"><h2>Emergency alerts</h2><p class="note">${events.length ? `${events.length} SOS request${events.length === 1 ? '' : 's'} in the log.` : 'No SOS requests.'}</p><a class="btn" href="doctor.html#emergency-log">Open emergency log</a></div></section></div>`;
+  document.querySelectorAll('[data-patient]').forEach(button => button.addEventListener('click', async () => { selectedPatientId = button.dataset.patient; readings = await loadReadings(selectedPatientId); renderHub(); }));
+}
+function eventRows() {
+  return events.length ? events.map(event => {
+    const r = event.vital_snapshot || {};
+    const snapshot = r.systolic ? `Latest attached reading: ${escapeHtml(`${r.systolic}/${r.diastolic}`)} mmHg · SpO₂ ${escapeHtml(r.spo2)}% · ${escapeHtml(r.heart_rate)} bpm` : 'No reading attached';
+    return `<article class="emergency-entry"><div><span class="status critical">SOS</span><strong>${escapeHtml(event.patient_name)}</strong><small>${escapeHtml(formatDate(event.created_at))}</small></div><p>${snapshot}</p><a class="btn" href="patient.html?id=${encodeURIComponent(event.patient_id)}">Open patient</a></article>`;
+  }).join('') : '<p class="note">No SOS requests from connected patients.</p>';
+}
+function renderDoctor() {
+  const d = doctorProfile;
+  $('#content').innerHTML = header('PROFILE / CLINICIAN', 'Doctor profile', 'Your care team information and emergency monitor.', '<a class="btn" href="index.html">← Main hub</a>') +
+    `<section class="card pad patient-identity">${avatar(d.display_name)}<div><div class="eyebrow">CLINICIAN RECORD</div><h2>${escapeHtml(d.display_name)}</h2><p class="note">${escapeHtml(user.email || '')}</p><p class="note">${escapeHtml(d.specialty || 'Specialty not entered')} · ${escapeHtml(d.facility || 'Facility not entered')}</p></div><button class="btn" id="edit-doctor">Edit profile</button></section>` +
+    `<form id="doctor-form" class="card pad profile-editor" hidden><h2>Edit your clinician profile</h2><label>Name<input name="display_name" maxlength="80" value="${escapeHtml(d.display_name)}" required></label><label>Specialty<input name="specialty" maxlength="80" value="${escapeHtml(d.specialty || '')}"></label><label>Facility<input name="facility" maxlength="100" value="${escapeHtml(d.facility || '')}"></label><button class="btn dark">Save profile</button><p id="doctor-message" role="status"></p></form>` +
+    `<div class="profile-metrics"><div class="card"><div class="eyebrow">CONNECTED PATIENTS</div><strong>${patients.length}</strong><small>shared with you</small></div><div class="card"><div class="eyebrow">SOS REQUESTS</div><strong id="sos-count">${events.length}</strong><small>in your log</small></div><div class="card"><div class="eyebrow">ACCOUNT</div><strong>Active</strong><small>signed in</small></div></div>` +
+    `<section class="card pad emergency-log" id="emergency-log"><div class="section-heading"><div><div class="eyebrow">CARE TEAM / IN-APP MONITOR</div><h2>Emergency log</h2></div><span class="status critical" id="emergency-count">${events.length} SOS</span></div><p class="note">Patient SOS requests are saved here with timestamps. This is an in-app log, not an emergency dispatch service.</p><div id="emergency-log-list" aria-live="polite">${eventRows()}</div></section>`;
+  $('#edit-doctor').addEventListener('click', () => { $('#doctor-form').hidden = !$('#doctor-form').hidden; });
+  $('#doctor-form').addEventListener('submit', async event => {
+    event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
+    const row = { user_id: user.id, display_name: values.display_name.trim(), specialty: values.specialty.trim(), facility: values.facility.trim(), updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('doctor_profiles').upsert(row, { onConflict: 'user_id' });
+    if (error) { $('#doctor-message').textContent = error.message; return; }
+    doctorProfile = row; renderDoctor();
+  });
+}
+
+async function bootstrap() {
+  const response = await supabase.auth.getUser();
+  user = response.data.user;
+  if (response.error || !user?.email_confirmed_at) { location.replace('login.html'); return; }
+  const roleResult = await supabase.from('user_roles').select('role').eq('user_id', user.id).single();
+  if (roleResult.error) throw roleResult.error;
+  role = roleResult.data.role;
+  if (role === 'patient' && page !== 'patient') { location.replace('patient.html'); return; }
   setupMenu();
-  if(page==='hub')renderHub();else if(page==='patient')renderPatient();else renderDoctor();
-  const link=$('.signin');link.textContent='Sign out ↗';link.href='#';
-  link.addEventListener('click',async event=>{event.preventDefault();await supabase.auth.signOut();window.location.assign('login.html')});
-}
-bootstrap().catch(()=>{$('#content').textContent='Could not load Carebidge. Check your connection and refresh.'});
-
-function renderPatient(){
-  const p=alertDemo?{...selected,bp:[184,122],spo2:88,heart:126}:selected;
-  const isCritical=status(p)==='critical';
-  const patientOnly=currentRole==='patient';
-  const contact=p.emergencyContactName||'Not provided';
-  const phone=p.emergencyContactPhone||'';
-  const callable=phone.replace(/[^+\d]/g,'');
-  const actions=patientOnly?`<button class="btn" id="edit-profile">Edit details</button><button class="btn" id="test-alert">${alertDemo?'End alert demo':'Simulate critical reading'}</button>`:`<a class="btn" href="index.html">← Main hub</a><button class="btn" id="test-alert">${alertDemo?'End alert demo':'Simulate critical reading'}</button>`;
-  const emergency=isCritical?`<section class="emergency" role="alert"><div><span class="eyebrow">CRITICAL READING · DEMO ALERT</span><h2>Urgent review recommended</h2><p>The simulated reading crossed a critical reference range. Recheck with a validated device and contact a qualified clinician. If this is a real emergency, use your local emergency number.</p><strong>Emergency contact: ${contact}${phone?' · '+phone:''}</strong></div>${callable?`<a class="btn dark" href="tel:${callable}">Call contact</a>`:''}</section>`:'';
-  const editor=patientOnly?`<form id="profile-form" class="card pad profile-editor" hidden><h2>Edit your profile and emergency contact</h2><label>Name<input name="display_name" maxlength="80" value="${p.name}" required></label><label>Age<input name="age" type="number" min="35" max="70" value="${p.age}" required></label><label>Sex<input name="sex" maxlength="40" value="${p.sex==='Not provided'?'':p.sex}"></label><label>Care focus<input name="care_focus" maxlength="120" value="${p.condition}"></label><label>Emergency contact name<input name="emergency_contact_name" maxlength="80" value="${p.emergencyContactName||''}"></label><label>Emergency contact phone<input name="emergency_contact_phone" type="tel" maxlength="30" value="${p.emergencyContactPhone||''}"></label><button class="btn dark" type="submit">Save details</button><p id="profile-message" role="status"></p></form>`:'';
-  $('#content').innerHTML=header('PROFILE / PATIENT','Patient profile',patientOnly?'Your information and simulated vital signs.':'A closer look at this demonstration patient.',actions)+emergency+editor+
-    `<div class="profile"><div class="card profile-side">${avatar(p)}<h2>${p.name}</h2><p class="subtitle">${patientOnly?p.email:`Patient ID ${p.id}`}</p>${badge(p)}<hr>${detail('Age / sex',`${p.age} / ${p.sex}`)}${detail('Room',p.room)}${detail('Last reading',p.last)}${detail('Care focus',p.condition)}<hr><div class="eyebrow">EMERGENCY CONTACT</div><p class="note">${contact}${phone?' · '+phone:''}</p></div><section><div class="profile-metrics"><div class="card"><div class="eyebrow">BLOOD PRESSURE</div><strong>${p.bp.join(' / ')}</strong><small>mmHg · simulated</small></div><div class="card"><div class="eyebrow">OXYGEN</div><strong>${p.spo2}%</strong><small>SpO₂ · simulated</small></div><div class="card"><div class="eyebrow">HEART RATE</div><strong>${p.heart}</strong><small>bpm · simulated</small></div></div><div class="profile-grid"><div class="card pad"><h2>Care overview</h2><p class="note">${p.name} · ${p.condition}. The vital signs shown here are simulated for this demonstration.</p><span class="pill">Daily monitoring</span></div><div class="card pad"><h2>Reference interpretation</h2><p class="note">Current display state: <strong>${status(p).toUpperCase()}</strong>. Based on age ${p.age} and the supplied spreadsheet ranges. This is not a diagnosis.</p></div><div class="card pad"><h2>Recent observations</h2>${detail('Blood pressure',`${p.bp.join(' / ')} mmHg`)}${detail('Oxygen saturation',`${p.spo2}%`)}${detail('Pulse',`${p.heart} bpm`)}</div><div class="card pad"><h2>Care notes</h2><p class="note">Confirm concerning readings with a validated device and a qualified clinician. The emergency alert appears only in this browser; it does not send a message or place a call automatically.</p></div></div></section></div>`;
-  $('#test-alert').addEventListener('click',()=>{alertDemo=!alertDemo;renderPatient()});
-  if(patientOnly){
-    $('#edit-profile').addEventListener('click',()=>{$('#profile-form').hidden=!$('#profile-form').hidden});
-    $('#profile-form').addEventListener('submit',async event=>{
-      event.preventDefault();const form=event.currentTarget;if(!form.reportValidity())return;
-      const values=Object.fromEntries(new FormData(form));
-      const record={user_id:currentUser.id,display_name:values.display_name.trim(),age:Number(values.age),sex:values.sex.trim(),care_focus:values.care_focus.trim(),emergency_contact_name:values.emergency_contact_name.trim(),emergency_contact_phone:values.emergency_contact_phone.trim(),updated_at:new Date().toISOString()};
-      const {error}=await supabase.from('patient_profiles').upsert(record,{onConflict:'user_id'});
-      if(error){$('#profile-message').textContent=error.message;return}
-      selected={...selected,name:escapeHtml(record.display_name),initials:escapeHtml(record.display_name.slice(0,2).toUpperCase()),age:record.age,sex:escapeHtml(record.sex||'Not provided'),condition:escapeHtml(record.care_focus||'Daily wellness monitoring'),emergencyContactName:escapeHtml(record.emergency_contact_name),emergencyContactPhone:escapeHtml(record.emergency_contact_phone)};
-      renderPatient();
-    });
+  if (role === 'patient') {
+    [ownProfile, readings] = await Promise.all([loadPatientProfile(user.id), loadReadings(user.id)]);
+    await Promise.all([loadMedicines(), loadCareTeam()]);
+    $('.top-right .avatar').textContent = (ownProfile.display_name || 'P').slice(0, 2).toUpperCase();
+    renderPatient();
+    setInterval(updateMedicineTimer, 30000);
+    setInterval(async () => {
+      try {
+        const prior = readings[0]?.id;
+        readings = await loadReadings(user.id);
+        if (prior !== readings[0]?.id && !document.activeElement?.closest('form')) renderPatient();
+      } catch {}
+    }, 30000);
+  } else {
+    await Promise.all([loadDoctorProfile(), loadAssignedPatients(), loadEvents()]);
+    $('.top-right .avatar').textContent = (doctorProfile.display_name || 'D').slice(0, 2).toUpperCase();
+    if (page === 'doctor') renderDoctor();
+    else if (page === 'hub') { if (selectedPatientId) readings = await loadReadings(selectedPatientId); renderHub(); }
+    else { if (selectedPatientId && patients.some(p => p.user_id === selectedPatientId)) readings = await loadReadings(selectedPatientId); renderPatient(); }
+    setInterval(async () => {
+      try {
+        await loadEvents();
+        if (page === 'doctor') { $('#emergency-log-list').innerHTML = eventRows(); $('#emergency-count').textContent = `${events.length} SOS`; $('#sos-count').textContent = events.length; }
+      } catch {}
+    }, 8000);
+    if (page === 'hub') setInterval(async () => { try { await loadAssignedPatients(); if (selectedPatientId) readings = await loadReadings(selectedPatientId); renderHub(); } catch {} }, 30000);
   }
 }
+bootstrap().catch(error => { $('#content').innerHTML = `<div class="card pad"><h2>Could not load Carebidge</h2><p class="note">${errorText(error)}</p></div>`; });

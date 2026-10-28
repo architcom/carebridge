@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const mime = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
 
-http.createServer((req, res) => {
+const requestedPort = Number(process.env.PORT);
+const ports = requestedPort ? [requestedPort] : [8000, 8123, 8124, 8125, 8126];
+let portIndex = 0;
+const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const name = url.pathname === '/' ? '/index.html' : url.pathname;
   const file = path.resolve(root, '.' + name);
@@ -16,4 +19,15 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': mime[path.extname(file)] || 'application/octet-stream' });
     res.end(data);
   });
-}).listen(8000, () => console.log('Open http://localhost:8000'));
+});
+server.on('error', error => {
+  if ((error.code === 'EADDRINUSE' || error.code === 'EACCES') && portIndex < ports.length - 1) {
+    portIndex += 1;
+    server.listen(ports[portIndex]);
+  } else {
+    console.error(error);
+    process.exitCode = 1;
+  }
+});
+server.on('listening', () => console.log(`Open http://localhost:${server.address().port}/login.html`));
+server.listen(ports[portIndex]);
